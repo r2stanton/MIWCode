@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
+# In[4]:
 
 
 import os
@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 from scipy.special import gamma
 
 
-# In[306]:
+# In[32]:
 
 
 def profiler(func):
@@ -74,7 +74,7 @@ def MIW_Forces(X, params, P = 0, Rsq = 0, Pi = 0, dPijk = 0, ddPijk = 0, dPik = 
     Rsq = Compute_Rsquared(X, Rsq)
 
     #Populate P matrix for P[i][j]
-    P = Compute_P(X, Rsq, ktype, P)
+    P = Compute_P(X, Rsq, ktype, b, D, P = P)
 
     #Populate Pi matrix for Pi[i]
     for i in range(N):
@@ -180,7 +180,7 @@ def Compute_Rsquared(X, Rsq = 0):
             Rsq[i][j] = np.inner(X[i]-X[j], X[i]-X[j])
     return(Rsq)
 
-def  Compute_P(X, Rsq, ktype, P = 0):
+def  Compute_P(X, Rsq, ktype, b, D, P = 0):
     """
     Args:
         X: Numpy array containing arrays of N world configurations. N x JD dimensions.
@@ -196,26 +196,27 @@ def  Compute_P(X, Rsq, ktype, P = 0):
     if ktype.lower() == 'gaussian':    
         for i in range(len(P)):
             for j in range(len(P)):
-                P[i][j] = Compute_Pij(X, i, j, Rsq, b, ktype)
+                P[i][j] = Compute_Pij(X, i, j, Rsq, b, D, ktype)
                 
     # This is unnecessary since ktype is passed, but I'm just leaving it in for now
     # in case I separated these for some reason not immediately clear.
     elif ktype.lower() == 'exponential':
         for i in range(len(P)):
             for j in range(len(P)):
-                P[i][j] = Compute_Pij(X, i, j, Rsq, b, ktype)
+                P[i][j] = Compute_Pij(X, i, j, Rsq, b, D, ktype)
                 
     
     return(P)
     
     
-def Compute_Pij(X, i, j, Rsq, b, ktype):
+def Compute_Pij(X, i, j, Rsq, b, D, ktype):
     """
     Args:
         X: Numpy array containing arrays of N world configurations. N x JD dimensions.
         i: Index of the world being computed for
         j: Index to be summed over in computation of P_i
         b: Kernel width parameter
+        D: Dimensionality of the space (used in cofactors)
         ktype: Kernel type ("gaussian" or "exponential")
         rijsquared: Sum of squared distances between coords of worlds i, j, $r_{ij}^2 = \Sigma_{k}( r_{ij}^k )^2$
     Returns:
@@ -397,7 +398,7 @@ def Compute_MIW_Potential2(X, params):
     Rsq = Compute_Rsquared(X, Rsq)
 
     #Populate P matrix for P[i][j]
-    P = Compute_P(X, Rsq, ktype, P)
+    P = Compute_P(X, Rsq, ktype, b, D, P=P)
 
     #Populate Pi matrix for Pi[i]
     for i in range(N):
@@ -500,160 +501,5 @@ def FiniteDiff(X, params, dx):
             F[i1][i2] = - (Utemp - Ucurr) / dx
             
     return(F)
-
-
-# ## Sets up system for testing simple 1D, 1 particle per world things (GAUSSIAN).
-
-# In[304]:
-
-
-N = 2
-J = 1
-D = 1
-b = .5
-spacing = .8
-
-# Populate a simple uniform distirbution centered on origin for J = D = 1
-# Populate the masses with simply all Mij = 1
-X = Populate1DUniform(N, spacing)
-M = np.zeros( X.shape )
-M += 1.0
-V = np.zeros( X.shape )
-
-params = {
-    "J":J,
-    "D":D,
-    "b":b,
-    "ktype":"gaussian",
-    "M":M,
-}
-
-
-F, U = MIW_Forces(X, params)
-
-
-
-dx = 5e-5
-Fdiff = FiniteDiff(X, params, dx)
-print("GAUSSIAN Kernel:")
-print("X positions\n", X, "\n")
-print("Analytic Forces\n", F, "\n")
-print("Finite diff Forces\n", Fdiff, "\n")
-dt = .2
-steps = 100
-
-print("Checking that the two functions computing U(X) return the same thing:")
-print("Compute1: ", U)
-print("Compute 2: ", Compute_MIW_Potential2(X, params), "\n")
-
-#filename = "traj.xyz"
-#os.system("rm %s" % filename)
-#verlet(X, V, params, dt, steps, filename)
-
-
-# ## Testing for same params as above (EXPONENTIAL).
-
-# In[303]:
-
-
-N = 2
-J = 1
-D = 1
-b = .5
-# spacing = .51349
-spacing = 1
-
-# Populate a simple uniform distirbution centered on origin for J = D = 1
-# Populate the masses with simply all Mij = 1
-X = Populate1DUniform(N, spacing)
-M = np.zeros( X.shape )
-M += 1.0
-V = np.zeros( X.shape )
-
-params = {
-    "J":J,
-    "D":D,
-    "b":b,
-    "ktype":"exponential",
-    "M":M,
-}
-
-print("EXPONENTIAL Kernel:")
-print("X positions\n", X, "\n")
-F, U = MIW_Forces(X, params)
-
-
-
-dx = 5e-5
-Fdiff = FiniteDiff(X, params, dx)
-print("Analytic Forces\n", F, "\n")
-print("Finite diff Forces\n", Fdiff, "\n")
-
-print("Checking that the two functions computing U(X) return the same thing:")
-print("Compute1: ", U)
-print("Compute 2: ", Compute_MIW_Potential2(X, params), "\n")
-
-# dt = .2
-# steps = 100
-#filename = "traj.xyz"
-#os.system("rm %s" % filename)
-#verlet(X, V, params, dt, steps, filename)
-
-
-# # Generating the Potential as a function of x1-x2
-
-# In[301]:
-
-
-x1 = 0
-start = -4
-steps = 500
-x2 = np.linspace(-start, start, steps)
-
-b = .5
-
-params = {
-    "J":J,
-    "D":D,
-    "b":b,
-    "ktype":"gaussian",
-    "M":M,
-}
-
-
-X = np.zeros( ( 2 , 1 ) )
-
-X[0][0] = x1
-GaussianPotentials = np.zeros( (len(x2), 1) )
-ExponentialPotentials = np.zeros( (len(x2), 1) )
-for i in range(len(x2)):
-    X[1][0] = x2[i]
-    params["ktype"]="gaussian"
-    F, U = MIW_Forces(X, params)
-    GaussianPotentials[i] = U
-    params["ktype"]="exponential"
-    F, U = MIW_Forces(X, params)
-    ExponentialPotentials[i] = U
-
-plt.figure(1)
-plt.title("MIW Potentials")
-plt.xlabel("x2-x1")
-plt.ylabel("MIW Potential")
-plt.plot(x2, GaussianPotentials, color = 'red', label = 'Gaussian')
-plt.plot(x2, ExponentialPotentials, color ='blue', label = 'Exponential')
-plt.legend()
-
-
-plt.figure(2)
-plt.title("Exponential MIW Potential")
-plt.plot(x2, ExponentialPotentials, color = 'blue', label = 'Exponential')
-#plt.ylim((0, max(ExponentialPotentials)))
-plt.ylim( ( 0, 1 ) ) 
-plt.legend()
-
-
-# In[ ]:
-
-
 
 

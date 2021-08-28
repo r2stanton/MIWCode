@@ -1,26 +1,25 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[4]:
+# In[2]:
 
 
 import os
 import sys
 import math
-#from liblibra_core import * 
-#from libra_py import *
+from liblibra_core import * 
+from libra_py import *
 import numpy as np
 import cProfile, pstats, io
 import matplotlib.pyplot as plt
 from scipy.special import gamma
 
 
-# In[32]:
+# In[3]:
 
 
 def profiler(func):
     # Decorater to profile the code, use for development
-    # Turn off profiler by commenting line 1 of this code block.
     def wrapper(*args, **kwargs):
         pr = cProfile.Profile()
         pr.enable()
@@ -431,6 +430,20 @@ def Populate1DUniform(N, spacing):
         X[i][0] = -(N-1)/2.0 * spacing + i*spacing
     return(X)
 
+def Populate3DRandom(N, particles, boxmax):
+    """
+    Args:
+        N: Number of worlds
+        particles: Number of particles per work
+        boxmax: max distance from origin along all dimensions for uniform sampling
+    Returns:
+        X: Uniformly sampled from [-boxmax, boxmax] in all 3 dimensions.
+    """
+    X = np.random.rand(N, 3*particles)
+    X -= .5
+    X *= boxmax*2
+    return(X)
+
 
 def Write_Frame_To_XYZ(X, D, filename):
     """
@@ -451,7 +464,7 @@ def Write_Frame_To_XYZ(X, D, filename):
         f.write(str(len(X)) + "\n")
         f.write("blank \n")
         for i in array:
-            f.write("X" + "    " + str(i[0]) + "    " + str(i[1]) + "    " + str(i[2]) + "\n")
+            f.write("H" + "    " + str(i[0]) + "    " + str(i[1]) + "    " + str(i[2]) + "\n")
         f.close()
         
     if D == 2:
@@ -462,7 +475,7 @@ def Write_Frame_To_XYZ(X, D, filename):
         f.write(str(len(X)) + "\n")
         f.write("blank \n")
         for i in array:
-            f.write("X" + "    " + str(i[0]) + "    " + str(i[1]) + "    " + str(i[2]) + "\n")
+            f.write("H" + "    " + str(i[0]) + "    " + str(i[1]) + "    " + str(i[2]) + "\n")
         f.close()
         
     if D == 3:
@@ -473,21 +486,23 @@ def Write_Frame_To_XYZ(X, D, filename):
         f.write(str(len(X)) + "\n")
         f.write("blank \n")
         for i in array:
-            f.write("X" + "    " + str(i[0]) + "    " + str(i[1]) + "    " + str(i[2]) + "\n")
+            f.write("H" + "    " + str(i[0]) + "    " + str(i[1]) + "    " + str(i[2]) + "\n")
         f.close()
     return()
 
 #Don't pass filename if you don't want to write to a file
-def verlet(X, V, params, dt, steps, filename = 0):
-    F = MIW_Forces(X, params)
-    for i in range(steps):
-        X = X + V * dt + .5 * np.divide(F, M) * dt * dt
-        V = V + .5 * np.divide(F, M) * dt
-        F = MIW_Forces(X, params)
-        V = V + .5 * np.divide(F, M) * dt
+def verlet(X, V, params, dt, steps, filename = 0, method = 0):
+    if method == 0:
+        F, U = MIW_Forces(X, params)
+        for i in range(steps):
+            X = X + V * dt + .5 * np.divide(F, M) * dt * dt
+            V = V + .5 * np.divide(F, M) * dt
+            F, U = MIW_Forces(X, params)
+            V = V + .5 * np.divide(F, M) * dt
+
+            if type(filename) != int:
+                Write_Frame_To_XYZ(X, 1, filename)
         
-        if type(filename) != int:
-            Write_Frame_To_XYZ(X, 1, filename)
     return()
 
 def FiniteDiff(X, params, dx):                    
@@ -502,4 +517,204 @@ def FiniteDiff(X, params, dx):
             
     return(F)
 
+def UnitConversions(inp, out, value):
+    """
+    Args:
+        inp: String containing units of "value" as input
+        out: String containing desired units for "value" as output
+        value: Numerical value in units [inp] for conversion to [out]
+    Returns:
+        value in units [out]
+    """
+    #Masses
+    if inp.lower() == "amu":
+        if out == "au":
+            return(value*1836.0)
+    elif inp.lower() == "au":
+        if out == "amu":
+            return(value/1836.0)
+    else:
+        print("Units not supported")
 
+def InitializeMM(X, params, atomlist = "H"):
+    """
+    Args:
+        X: MIW configuration as numpy array
+        atomlist: List of atomic types corresponding to entries of X
+        params: Not sure what yet
+    Returns:
+        Xmm: Returns the N worlds, but as Libra objects containing info such as masses/positions/etc. 
+        Ham_mm: Contains information for the computation of the classical forces
+        Syst_mm: Needed for Force_MM, where systems are originally loaded into.
+    """
+    #Set up now only for D = 3
+    D = params["D"]
+    try:
+        params_ff = params["params_ff"]
+    except:
+        print("No FF defined, using default many body LJ with Rcut = 20A")
+        params_ff = {"mb_functional":"LJ_Coulomb","R_vdw_on":0.0,"R_vdw_off":20.0 }
+    
+    FOLDERNAME = "tempsys"
+    PREFIX = "world_"
+    N = len(X)
+    
+    ############################################
+    #            READ IN THE FILES             #
+    ############################################
+    
+    # Write X to xyz files by world to set up the libra objects.
+    # Each world gets an .xyz file: world_#.xyz for generating system later.
+    # This is not optimal way to do this time-wise, but I don't think it will matter.
+    if atomlist == "H":
+        os.system("rm -r %s" % FOLDERNAME)
+        os.system("mkdir %s" % FOLDERNAME)
+        
+        for i in range(N):
+            filename = PREFIX + str(i) + ".xyz"
+            f = open(FOLDERNAME+"/"+filename, "w+")
+            f.write(str(int(len(X[0])/D)) + "\n")
+            f.write("\n")
+            
+            # I think the only time we'd be computed MM forces would be for 3D systems, so just leaving 3D for now.
+            if D == 3:
+                for j in range(int(len(X[0])/D)):
+                    f.write("H" + "    " + str(X[i][j*D]) + "    " + str(X[i][j*D + 1]) + "    " + str(X[i][j*D] + 2) + "\n")
+            else:
+                print("Need to decide as to if this will work/be necessary for 2D/1D systems")
+                return()
+                    
+            f.close()
+    else:
+        return("Not yet implemented")
+    
+    
+    ############################################
+    #        LOAD IN CHEMDATA + SETUP FFs      #
+    ############################################
+    
+    # Populate Xmm, the list of libra objects containing the worlds for force computations.
+    # I.e. Xmm = [world1, world2, ... , worldN] (indexed from 0)
+        
+    # Imports relevant chemical data. Must have elements.dat/uff.dat in working dir.
+    U = Universe()
+    verbose = 0
+    LoadPT.Load_PT(U, "elements.dat", verbose)
+    
+    # Set up the FF interactions.
+    uff = ForceField(params_ff)
+
+    
+    LoadUFF.Load_UFF(uff)
+    verb = 0
+    assign_rings = 0
+    
+    
+    
+    #Initialize lists which will contain return objects. 
+    X_mm = [] # Contains coordinates of worlds in libra objects. X[i][j] (MIW) = X[i].q[j] (Libra Nuclear obj)
+    # These objects actually contain much more than just the configuration coords, but forces, masses, etc. as well.
+    
+    Ham_mm = [] # Contains interaction info, needed to compute forces
+    
+    Syst_mm = []
+    # Example call for computed forces OUTSIDE of this function for world i
+    # Compute_forces(X_mm[i], el, Ham_mm[i], 1) 
+    
+    for i in range(N):
+        
+        # Load in the i'th world and put it in an instanced system.
+        syst = System();
+        workingFile = FOLDERNAME +"/" +  PREFIX + str(i) + ".xyz"
+        # print("Grabbing coordinates for world", i, "from", workingFile)
+        LoadMolecule.Load_Molecule(U, syst, workingFile, "xyz");
+        
+        
+        
+        # For computation of forces between all atoms.
+        atlst1 = list(range(1,syst.Number_of_atoms+1))
+        
+        
+        # Set up Hamiltonian type + bind it and the sytem.
+        ham = Hamiltonian_Atomistic(1, 3*syst.Number_of_atoms)
+        ham.set_Hamiltonian_type("MM")
+        ham.set_interactions_for_atoms(syst, atlst1, atlst1, uff, verb, assign_rings)
+        ham.set_system(syst)
+        ham.compute()
+        
+        # Set up libra objects
+        #el = Electronic(1,0)
+        mol = Nuclear(3*syst.Number_of_atoms)
+        
+        # Extract the coordinates so that MIW functions can compute classical forces.
+        syst.extract_atomic_q(mol.q)        
+        
+        # Extract masses so as to not have to code extra atomID->a.u. mass determinations.
+        syst.extract_atomic_mass(mol.mass)
+        
+        # Append the current Nuclear object to X_mm
+        X_mm.append(mol)
+        
+        # Append the current Hamiltonian_Atomistic object to Ham_mm
+        Ham_mm.append(ham)
+        
+        Syst_mm.append(syst)
+        # Commented codeblock showing how to change coords in the Libra object
+        # to get it to compute forces properly
+        
+#         print("mol.f[0]", mol.f[0])
+#         compute_forces(mol, el, ham, 1)
+#         print("mol.f[0]", mol.f[0])
+#         mol.q[0] = 500
+#         compute_forces(mol, el, ham, 1)
+#         print("mol.f[0]", mol.f[0])
+        
+    return(X_mm, Ham_mm, Syst_mm)
+
+def UpdateNuclear(X, X_mm):
+    """
+    Args:
+        X: Numpy array of dimension N x JD containing configurations
+        X_mm: Python list of N Nuclear objects with JD DoFs each.
+    Returns:
+        X_mm: Updated to be consistent with coordinates in X.
+    """
+    for i in range(len(X)):
+        for j in range(len(X[0])):
+            X_mm[i].q[j] = X[i][j]
+    return(X_mm)
+
+def MM_Forces(X_mm, Ham_mm, Syst_mm, F, potential = False):
+    """
+    Args:
+        X_mm: Contains N Nuclear objects with relevant data bing masses, classical forces, and positions.
+        Ham_mm: Contains information for the computation of the classical forces
+        Syst_mm: Not 100% why this is needed, but it is. Where the worlds are originally loaded in from.
+        F: 2D N x JD numpy array for forces.
+        potential: Set to true for computation+return of classical potential (summed over all worlds).
+    """
+    
+    
+    el = Electronic(1,0)
+    
+    potRes = 0
+    
+    os.system("echo beforeComputingF")
+    
+    for i in range(len(X_mm)):
+        compute_forces(X_mm[i], el, Ham_mm[i], 1) 
+        
+        if potential:
+            potRes += compute_potential_energy(X_mm[i], el, Ham_mm[i], 1)
+    os.system("echo beforeUpdatingF")
+    
+    for i in range(len(F)):
+        for j in range(len(F[0])):
+            F[i][j] += X_mm[i].f[j]
+            # print(X_mm[i].f[j])
+    
+    if potential:
+        return(F, potRes)
+    else:
+        return(F)
+                      

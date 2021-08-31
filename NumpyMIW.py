@@ -161,6 +161,105 @@ def MIW_Forces(X, params, P = 0, Rsq = 0, Pi = 0, dPijk = 0, ddPijk = 0, dPik = 
     U = Compute_MIW_Potential(X, b, gik, M, ktype)                                                    
     return(F, U)
 
+
+
+
+def compute_P(Q, X, dim, b):
+    """
+    Args:
+        Q ( MATRIX(ndof, 1) ): point of interest in the ndof-dimensional phase space
+        X ( MATRIX(ndof, ntraj) ): the replicas of the ndof-dimensional world
+        dim ( int ): physical dimensionalty
+        b ( float ): parameter
+           
+    Note:
+       ndof = npart * dim, where npart = the number of particles, dim - dimensionality of the problem
+              we usually don't care about npart, although we care about dim
+       ntraj = the number of worlds
+    """
+
+    ndof = X.num_of_rows
+    ntraj = X.num_of_cols
+    b2 = b*b
+
+    p = 0.0
+    for itraj in range(ntraj):
+        q = Q - X.col(itraj)
+        argg = (q.T() * q).get(0,0)/b2
+        p += math.exp(-argg)
+
+    nrm_fact = math.sqrt(math.pi) * b
+
+    p = p / (ntraj * POW( nrm_fact, dim) )
+    
+    return p
+
+
+def gaussian_kernel(Q):
+    """
+    Args:
+        Q ( MATRIX(ndof, ntraj) ): coordinates of all worlds in the ndof-dimensional phase space
+        dim ( int ): physical dimensionalty of each world
+        b ( float ): parameter
+           
+    Note:
+       ndof = npart * dim, where npart = the number of particles, dim - dimensionality of the problem
+              we usually don't care about npart, although we care about dim
+       ntraj = the number of worlds
+    """
+
+
+    ndof = Q.num_of_rows
+    ntraj = Q.num_of_cols
+    ntraj2 = ntraj * ntraj
+    b2 = b*b
+    frc = (2.0/b2)
+
+    rho = MATRIX(ntraj, ntraj)  
+    drho = MATRIX(ndof, ntraj2)
+    d2rho = MATRIX(ntraj, ntraj)
+
+    P = MATRIX(ntraj)
+    dP = MATRIX(ndof, ntraj)
+    F = MATRIX(ndof, ntraj)
+
+
+    nrm = 1.0 / (ntraj * POW( math.sqrt(math.pi) * b, dim) )
+
+
+    # Compute rho, 
+    for i in range(ntraj):
+
+        pi = 0.0
+        for j in range(ntraj):
+
+            # Eq. A1
+            rij2 = 0.0
+            for idof in range(ndof):
+                dq = Q.get(idof, i) - Q.get(idof, j)
+                rij2 += dq**2
+
+
+            pij = nrm * math.exp(-rij2/b2)
+            pi += pij
+            rho.set(i, j, pij)
+            d2rho.set(i, j,  -frc * (1.0 - frc*rij2) * pij )
+
+
+            indx = i * ntraj + j
+            for idof in range(ndof):
+                dq = Q.get(idof, i) - Q.get(idof, j)
+                drho.set(idof, indx, -frc*dq*pij)
+
+        # Eq. A2
+        P.set(i, 0, pi)
+
+#        for idof in range(ndof):        
+#            dP.set()
+
+
+
+
 def Compute_Rsquared(X, Rsq = 0):
     """
     Args:

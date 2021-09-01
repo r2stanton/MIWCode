@@ -206,56 +206,104 @@ def gaussian_kernel(Q):
        ndof = npart * dim, where npart = the number of particles, dim - dimensionality of the problem
               we usually don't care about npart, although we care about dim
        ntraj = the number of worlds
+
+       The notation used for indices: i, j - indicate worlds (trajectories),  a, b - indicate DOFs, 
+       n, m - words of the particles w.r.t. which the derivatives are taken
+
     """
 
 
     ndof = Q.num_of_rows
-    ntraj = Q.num_of_cols
-    ntraj2 = ntraj * ntraj
+    ntraj = Q.num_of_cols    
     b2 = b*b
     frc = (2.0/b2)
 
-    rho = MATRIX(ntraj, ntraj)  
-    drho = MATRIX(ndof, ntraj2)
-    d2rho = MATRIX(ntraj, ntraj)
+    dr = MATRIX(ndof, ntraj*ntraj)            # x_i^a - x_j^a = dr.get(a, i*ntraj+j)
 
-    P = MATRIX(ntraj)
-    dP = MATRIX(ndof, ntraj)
+    rho = MATRIX(1, ntraj*ntraj)              # these are called P_ij = rho.get(0, i*ntraj+j) in the paper
+    sum_rho = MATRIX(1, ntraj)                # these are sum_j { P_ij }  = P.get(0, i)
+    drho = MATRIX(ndof, ntraj*ntraj)          # these are d P_ij / dx_i^a = drho(a, i*ntraj+j)    
+    sum_drho = MATRIX(ndof, ntraj)            # sum_j { d P_ij / dx_i^a }
+    ddrho = MATRIX(ntraj, ntraj)              # these are sum_a { d P_ij / dx_i^a * dx_i^a }
+    sum_ddrho = MATRIX(1, ntraj)              # these are sum_{a, j} { d P_ij / dx_i^a * dx_i^a }
+
+
+    dP = MATRIX(ntraj*ndof, ntraj)            #  d P_i / dx_n^a = dP.get(n*ndof + a, i) = sum_j { dP_ij / dx_n^a }
+    g = MATRIX(ndof, ntraj)                   # these are g_i^a = g.get(a, i) = P'_i^k / P_i
+
+
+    d2P = MATRIX(ntraj*ndof, ntraj*ndof)      #  d P'_i^a / dx_n^b = d2P.get(i*ndof+a, n*ndof+b)
+
     F = MATRIX(ndof, ntraj)
 
 
     nrm = 1.0 / (ntraj * POW( math.sqrt(math.pi) * b, dim) )
 
 
-    # Compute rho, 
+    # Compute dr, rho, drho, ddrho, P
     for i in range(ntraj):
 
-        pi = 0.0
         for j in range(ntraj):
 
-            # Eq. A1
+            indx = i * ntraj + j
+
             rij2 = 0.0
+            #=========== dr ===========
             for idof in range(ndof):
+
                 dq = Q.get(idof, i) - Q.get(idof, j)
+                dr.set(idof, indx, dq)
                 rij2 += dq**2
 
-
+            #=========== rho, sum_rho ===========
             pij = nrm * math.exp(-rij2/b2)
-            pi += pij
-            rho.set(i, j, pij)
-            d2rho.set(i, j,  -frc * (1.0 - frc*rij2) * pij )
+            rho.set(0, indx, pij)
+            sum_rho.add(0, i, pij)
 
-
-            indx = i * ntraj + j
+            #=========== drho, sum_drho ===========
             for idof in range(ndof):
-                dq = Q.get(idof, i) - Q.get(idof, j)
-                drho.set(idof, indx, -frc*dq*pij)
+                dq = dr.get(idof, indx)
+                val = -frc*dq*pij
+                drho.set(idof, indx, val)
+                sum_drho.add(idof, i, val)
 
-        # Eq. A2
-        P.set(i, 0, pi)
 
-#        for idof in range(ndof):        
-#            dP.set()
+            #=========== ddrho, sum_ddrho ===========
+            val = -frc * (1.0 - frc*rij2) * pij
+            ddrho.set(i, j,  -frc * (1.0 - frc*rij2) * pij )
+            sum_ddrho.add(0, i, val)
+
+
+    # ============== Compute dP, Eq. A3 ======================
+    for i in range(ntraj):      # dP_i/
+        for n in range(ntraj):  # /dx_n
+
+            if n==i: 
+                for idof in range(ndof):
+                    res = sum_drho.get(idof, n)
+                    dP.set(n*ndof+idof, i, res)
+                
+            else:
+                for idof in range(ndof):              
+                    res = - drho.get(idof, i*ntraj+n)
+                    dP.set(n*ndof+idof, i, res)
+            
+
+
+
+    # ============== Compute d2P, Eq. A4 ======================
+    # d2P = MATRIX(ntraj*ndof, ntraj*ndof)      #  d P'_i^a / dx_n^b = d2P.get(i*ndof+a, n*ndof+b)
+    for i in range(ntraj):      # dP_i/
+        for n in range(ntraj):  # /dx_n
+
+            for a in range(ndof):      # /dx_n^a
+                for b in range(ndof):  # /dx_n^b
+
+                    if n==i and a==b: 
+
+                        d2P.set(i*ndof+a, n*ndof+b, sum_ddrho.get() )  #FIXME: COMPLETE this 
+                       
+                    #FIXME: other cases
 
 
 

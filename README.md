@@ -1,6 +1,5 @@
 # MIWCode
 
-
 ## Contents
 - NumpyMIW.ipynb
 - - Notebook containing the functions which (for the most part) make up the MIW code
@@ -12,3 +11,6 @@
 
 - DynamicsTest.ipynb
 - - Notebook for testing simple potentials/new functions before migrating them over to NumpyMIW
+
+- LibraMIW.ipynb
+- - Notebook containing the implementation of MIW forces/potential computation for the gaussian and exponential kernel using the libra matrices.
